@@ -55,7 +55,7 @@ type Call struct {
 	// Holds a handler used to manipulate arguments content that are passed by
 	// reference. It's useful when mocking methods such as unmarshalers or
 	// decoders.
-	RunFn func(Arguments)
+	RunFn func(Arguments) Arguments
 }
 
 func newCall(parent *Mock, methodName string, methodArguments ...interface{}) *Call {
@@ -142,6 +142,24 @@ func (c *Call) After(d time.Duration) *Call {
 //    	arg["foo"] = "bar"
 //    })
 func (c *Call) Run(fn func(args Arguments)) *Call {
+	c.lock()
+	defer c.unlock()
+	c.RunFn = func(args Arguments) Arguments {
+		fn(args)
+		return nil
+	}
+	return c
+}
+
+// Run sets a handler to be called instead of this function. It can be used
+// in order to stub out methods in certain cases. If the method returns nil,
+// then "ReturnValues" will be returned instead.
+//
+//    Mock.On("Unmarshal", AnythingOfType("*map[string]interface{}").Return().Run(func(args Arguments) {
+//    	arg := args.Get(0).(*map[string]interface{})
+//    	arg["foo"] = "bar"
+//    })
+func (c *Call) RunStub(fn func(args Arguments) Arguments) *Call {
 	c.lock()
 	defer c.unlock()
 	c.RunFn = fn
@@ -337,7 +355,9 @@ func (m *Mock) MethodCalled(methodName string, arguments ...interface{}) Argumen
 	}
 
 	if call.RunFn != nil {
-		call.RunFn(arguments)
+		if rVal := call.RunFn(arguments); rVal != nil {
+			return rVal
+		}
 	}
 
 	return call.ReturnArguments
